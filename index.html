@@ -54,18 +54,32 @@
             const [isBattleMode, setIsBattleMode] = React.useState(false); // State to toggle battle mode
             const [currentPlayer, setCurrentPlayer] = React.useState('player1'); // Current player in battle mode
 
+            // New states for game flow and player names
+            const [gameStarted, setGameStarted] = React.useState(false); // Controls if game UI is shown
+            const [showNameInput, setShowNameInput] = React.useState(false); // Controls if name input is shown
+            const [player1Name, setPlayer1Name] = React.useState('玩家1');
+            const [player2Name, setPlayer2Name] = React.useState('玩家2');
+            const [nameInputError, setNameInputError] = React.useState(''); // New state for name input error
+
             const synth = React.useRef(null); // Ref for Tone.js synth
             const speechSynth = React.useRef(window.speechSynthesis); // Ref for Web Speech API
 
             React.useEffect(() => {
-                // Initialize Tone.js synth
-                synth.current = new Tone.Synth().toDestination();
-                startNewRound();
-            }, [isBattleMode]); // Restart game when mode changes
+                // Initialize Tone.js synth only once
+                if (!synth.current) {
+                    synth.current = new Tone.Synth().toDestination();
+                }
+                if (gameStarted) {
+                    console.log('Game Started. Starting new round.');
+                    startNewRound();
+                }
+            }, [gameStarted, isBattleMode]); // Re-initiate round when game starts or mode changes
 
             // Function to speak the English word
             const speakColorName = (text) => {
                 if (speechSynth.current) {
+                    // Stop any ongoing speech before starting a new one
+                    speechSynth.current.cancel();
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'en-US'; // Set language to English
                     speechSynth.current.speak(utterance);
@@ -83,6 +97,8 @@
 
                 // Speak the color name when a new round starts
                 speakColorName(targetColor.name);
+                console.log(`--- New Round ${round} ---`);
+                console.log('Target Color:', targetColor.name);
 
                 // Generate options: target color + 3 random distinct incorrect colors
                 let allOptions = [targetColor];
@@ -107,78 +123,208 @@
 
             // Handle user's color selection
             const handleColorSelect = (selectedColor) => {
+                console.log('--- Handle Color Select ---');
+                console.log('Current Round:', round);
+                console.log('Current Player:', currentPlayer);
+                console.log('Target Color:', currentColor.name);
+                console.log('Selected Color:', selectedColor.name);
+
                 let correct = false;
                 if (selectedColor.name === currentColor.name) {
                     setFeedback('正確！');
                     setIsCorrect(true);
                     correct = true;
                     synth.current.triggerAttackRelease('C5', '8n'); // Play a positive sound
+                    console.log('Answer: Correct!');
                 } else {
                     // Display the selected incorrect answer
                     setFeedback(`再試一次！您選擇的是：${selectedColor.name} (${selectedColor.chinese})`);
                     setIsCorrect(false);
                     synth.current.triggerAttackRelease('C3', '8n'); // Play a negative sound
+                    console.log('Answer: Incorrect.');
                 }
 
                 if (isBattleMode) {
+                    // Log scores BEFORE update
+                    console.log(`Scores BEFORE update: P1=${player1Score}, P2=${player2Score}`);
                     if (correct) {
                         if (currentPlayer === 'player1') {
-                            setPlayer1Score(prevScore => prevScore + 1);
+                            setPlayer1Score(prevScore => {
+                                console.log(`Player 1 score updated from ${prevScore} to ${prevScore + 1}`);
+                                return prevScore + 1;
+                            });
                         } else {
-                            setPlayer2Score(prevScore => prevScore + 1);
+                            setPlayer2Score(prevScore => {
+                                console.log(`Player 2 score updated from ${prevScore} to ${prevScore + 1}`);
+                                return prevScore + 1;
+                            });
                         }
                     }
-                    // Switch player after each attempt in battle mode
-                    setCurrentPlayer(prevPlayer => prevPlayer === 'player1' ? 'player2' : 'player1');
+                    // Log next player
+                    const nextPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+                    setCurrentPlayer(nextPlayer);
+                    console.log('Next Player:', nextPlayer);
                 } else {
                     if (correct) {
-                        setScore(prevScore => prevScore + 1);
+                        setScore(prevScore => {
+                            console.log(`Single player score updated from ${prevScore} to ${prevScore + 1}`);
+                            return prevScore + 1;
+                        });
                     }
                 }
 
                 // Move to next round after a short delay
-                // Increased delay slightly to allow time to read the feedback
                 setTimeout(() => {
+                    console.log('Moving to next round/game over...');
                     if (round < maxRounds) {
                         setRound(prevRound => prevRound + 1);
                         startNewRound();
                     } else {
                         // Game over logic
                         let finalMessage = '';
-                        if (isBattleMode) {
-                            if (player1Score > player2Score) {
-                                finalMessage = `玩家1獲勝！分數：${player1Score} - ${player2Score}`;
-                            } else if (player2Score > player1Score) {
-                                finalMessage = `玩家2獲勝！分數：${player2Score} - ${player1Score}`;
+                        let currentP1Score = player1Score; // Capture current state for this closure
+                        let currentP2Score = player2Score; // Capture current state for this closure
+                        let currentSingleScore = score; // Capture current state for single player
+
+                        // Adjust scores for the *last* correct answer if it happened in this turn
+                        // This is crucial because setState is async and player1Score/player2Score
+                        // inside this closure might not reflect the increment yet.
+                        if (correct) { // 'correct' flag is from the outer scope, which is fine
+                            if (isBattleMode) {
+                                if (currentPlayer === 'player1') { // 'currentPlayer' is also from the outer scope
+                                    currentP1Score += 1;
+                                } else {
+                                    currentP2Score += 1;
+                                }
                             } else {
-                                finalMessage = `平手！分數：${player1Score} - ${player2Score}`;
+                                currentSingleScore += 1;
+                            }
+                        }
+
+                        if (isBattleMode) {
+                            if (currentP1Score > currentP2Score) {
+                                finalMessage = `${player1Name} 獲勝！分數：${currentP1Score} - ${currentP2Score}`;
+                            } else if (currentP2Score > currentP1Score) {
+                                finalMessage = `${player2Name} 獲勝！分數：${currentP2Score} - ${currentP1Score}`;
+                            } else {
+                                finalMessage = `平手！分數：${currentP1Score} - ${currentP2Score}`;
                             }
                         } else {
-                            finalMessage = `遊戲結束！您的分數是 ${score} / ${maxRounds}`;
+                            finalMessage = `遊戲結束！您的分數是 ${currentSingleScore} / ${maxRounds}`;
                         }
                         setFeedback(finalMessage);
                         setIsCorrect(null); // Reset feedback state
                         setCurrentColor(null); // Hide the word
                         setOptions([]); // Hide options
+                        console.log('Game Over. Final Feedback:', finalMessage);
                     }
                 }, 2000); // 2 second delay to see the answer
             };
 
-            // Reset the game
-            const resetGame = () => {
+            // Reset the game to initial state (back to mode selection)
+            const resetGameToStart = () => {
                 setScore(0);
                 setPlayer1Score(0);
                 setPlayer2Score(0);
                 setRound(1);
-                setCurrentPlayer('player1'); // Reset to player1 for new game
-                startNewRound();
+                setCurrentPlayer('player1');
+                setGameStarted(false);
+                setShowNameInput(false);
+                setFeedback(''); // Clear any game over feedback
+                setCurrentColor(null); // Ensure current color is reset
+                setOptions([]); // Ensure options are cleared
+                setNameInputError(''); // Clear name input error
+                console.log('Game reset to start screen.');
             };
 
-            // Toggle between single player and battle mode
-            const toggleMode = () => {
-                setIsBattleMode(prevMode => !prevMode);
-                resetGame(); // Reset game when mode changes
+            // Handle mode selection from start screen
+            const handleModeSelect = (mode) => {
+                if (mode === 'single') {
+                    setIsBattleMode(false);
+                    setGameStarted(true);
+                    setShowNameInput(false);
+                    setNameInputError(''); // Clear error if switching from name input
+                    console.log('Selected Single Player Mode.');
+                } else { // Battle mode
+                    setIsBattleMode(true);
+                    setShowNameInput(true); // Show name input fields
+                    console.log('Selected Battle Mode. Showing name input.');
+                }
             };
+
+            // Handle starting battle mode game after names are entered
+            const handleStartBattleGame = () => {
+                if (player1Name.trim() === '' || player2Name.trim() === '') {
+                    setNameInputError('請輸入兩位玩家的名稱！');
+                    console.log('Name input error: Names are empty.');
+                    return;
+                }
+                setNameInputError(''); // Clear error if valid
+                setGameStarted(true);
+                setShowNameInput(false);
+                console.log(`Starting Battle Game with P1: ${player1Name}, P2: ${player2Name}`);
+            };
+
+            // --- Render Logic ---
+
+            // Initial Screen: Mode Selection and Name Input
+            if (!gameStarted) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-300 to-purple-400 p-4 font-inter">
+                        <div className="bg-white p-8 rounded-xl shadow-2xl text-center max-w-md w-full">
+                            <h2 className="text-4xl font-bold text-gray-800 mb-6">選擇遊戲模式</h2>
+                            {!showNameInput ? (
+                                <div className="flex flex-col space-y-4">
+                                    <button
+                                        onClick={() => handleModeSelect('single')}
+                                        className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
+                                    >
+                                        單人模式
+                                    </button>
+                                    <button
+                                        onClick={() => handleModeSelect('battle')}
+                                        className="bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
+                                    >
+                                        對戰模式
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col space-y-6">
+                                    <input
+                                        type="text"
+                                        placeholder="玩家1 名稱"
+                                        value={player1Name}
+                                        onChange={(e) => setPlayer1Name(e.target.value)}
+                                        className="p-3 border-2 border-gray-300 rounded-lg text-xl focus:outline-none focus:border-blue-500"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="玩家2 名稱"
+                                        value={player2Name}
+                                        onChange={(e) => setPlayer2Name(e.target.value)}
+                                        className="p-3 border-2 border-gray-300 rounded-lg text-xl focus:outline-none focus:border-blue-500"
+                                    />
+                                    {nameInputError && (
+                                        <p className="text-red-500 text-base font-medium -mt-4">{nameInputError}</p>
+                                    )}
+                                    <button
+                                        onClick={handleStartBattleGame}
+                                        className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
+                                    >
+                                        開始遊戲
+                                    </button>
+                                    <button
+                                        onClick={resetGameToStart} // Go back to mode selection
+                                        className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
+                                    >
+                                        返回
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
 
             // Game Over Screen
             if (!currentColor && round > maxRounds) {
@@ -186,8 +332,8 @@
                 if (isBattleMode) {
                     finalScoreDisplay = (
                         <p className="text-3xl text-gray-700 mb-8">
-                            玩家1分數: <span className="font-extrabold text-blue-600">{player1Score}</span><br />
-                            玩家2分數: <span className="font-extrabold text-blue-600">{player2Score}</span>
+                            {player1Name} 分數: <span className="font-extrabold text-blue-600">{player1Score}</span><br />
+                            {player2Name} 分數: <span className="font-extrabold text-blue-600">{player2Score}</span>
                         </p>
                     );
                 } else {
@@ -203,16 +349,10 @@
                             {finalScoreDisplay}
                             <p className="text-3xl font-bold text-gray-800 mb-6">{feedback}</p> {/* Display winner message */}
                             <button
-                                onClick={resetGame}
-                                className="bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105 mr-4"
+                                onClick={resetGameToStart}
+                                className="bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
                             >
                                 再玩一次
-                            </button>
-                            <button
-                                onClick={toggleMode}
-                                className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
-                            >
-                                {isBattleMode ? '切換到單人模式' : '切換到對戰模式'}
                             </button>
                         </div>
                     </div>
@@ -228,10 +368,10 @@
 
                         {isBattleMode ? (
                             <div className="mb-4 text-2xl font-bold text-gray-700">
-                                <p>玩家1分數: <span className="text-blue-600">{player1Score}</span></p>
-                                <p>玩家2分數: <span className="text-red-600">{player2Score}</span></p>
+                                <p>{player1Name} 分數: <span className="text-blue-600">{player1Score}</span></p>
+                                <p>{player2Name} 分數: <span className="text-red-600">{player2Score}</span></p>
                                 <p className={`mt-2 ${currentPlayer === 'player1' ? 'text-blue-700' : 'text-red-700'} animate-pulse`}>
-                                    目前是 {currentPlayer === 'player1' ? '玩家1' : '玩家2'} 的回合！
+                                    目前是 {currentPlayer === 'player1' ? player1Name : player2Name} 的回合！
                                 </p>
                             </div>
                         ) : (
@@ -278,12 +418,12 @@
                         )}
                     </div>
 
-                    {/* Mode Toggle Button */}
+                    {/* Button to return to start screen */}
                     <button
-                        onClick={toggleMode}
-                        className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-300 hover:scale-105 mt-4"
+                        onClick={resetGameToStart}
+                        className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-300 hover:scale-105 mt-4"
                     >
-                        {isBattleMode ? '切換到單人模式' : '切換到對戰模式'}
+                        返回主選單
                     </button>
                 </div>
             );
