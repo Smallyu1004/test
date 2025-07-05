@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英文顏色學習遊戲</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter font for better typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tone.js for audio feedback -->
+    <script src="https://unpkg.com/tone"></script>
+
+    <script type="text/babel">
+        // Main App Component
+        const App = () => {
+            // Simplified and more basic color options
+            const colors = [
+                { name: 'Red', chinese: '紅色', hex: '#EF4444' },
+                { name: 'Blue', chinese: '藍色', hex: '#3B82F6' },
+                { name: 'Green', chinese: '綠色', hex: '#22C55E' },
+                { name: 'Yellow', chinese: '黃色', hex: '#FACC15' },
+                { name: 'Purple', chinese: '紫色', hex: '#A855F7' },
+                { name: 'Orange', chinese: '橙色', hex: '#F97316' },
+                { name: 'Pink', chinese: '粉紅色', hex: '#EC4899' },
+                { name: 'Black', chinese: '黑色', hex: '#000000' },
+                { name: 'White', chinese: '白色', hex: '#FFFFFF' },
+                { name: 'Brown', chinese: '棕色', hex: '#8B5F2A' },
+            ];
+
+            const [currentColor, setCurrentColor] = React.useState(null); // The color to guess
+            const [options, setOptions] = React.useState([]); // The clickable color options
+            const [feedback, setFeedback] = React.useState(''); // Feedback message (Correct! / Try again!)
+            const [isCorrect, setIsCorrect] = React.useState(null); // True, False, or null
+            const [score, setScore] = React.useState(0); // Single player score
+            const [player1Score, setPlayer1Score] = React.useState(0); // Player 1 score in battle mode
+            const [player2Score, setPlayer2Score] = React.useState(0); // Player 2 score in battle mode
+            const [round, setRound] = React.useState(1);
+            const maxRounds = 10;
+            const [isBattleMode, setIsBattleMode] = React.useState(false); // State to toggle battle mode
+            const [currentPlayer, setCurrentPlayer] = React.useState('player1'); // Current player in battle mode
+
+            const synth = React.useRef(null); // Ref for Tone.js synth
+            const speechSynth = React.useRef(window.speechSynthesis); // Ref for Web Speech API
+
+            React.useEffect(() => {
+                // Initialize Tone.js synth
+                synth.current = new Tone.Synth().toDestination();
+                startNewRound();
+            }, [isBattleMode]); // Restart game when mode changes
+
+            // Function to speak the English word
+            const speakColorName = (text) => {
+                if (speechSynth.current) {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'en-US'; // Set language to English
+                    speechSynth.current.speak(utterance);
+                }
+            };
+
+            // Function to start a new game round
+            const startNewRound = () => {
+                setFeedback('');
+                setIsCorrect(null);
+
+                // Select a random color to be the target
+                const targetColor = colors[Math.floor(Math.random() * colors.length)];
+                setCurrentColor(targetColor);
+
+                // Speak the color name when a new round starts
+                speakColorName(targetColor.name);
+
+                // Generate options: target color + 3 random distinct incorrect colors
+                let allOptions = [targetColor];
+                let availableColors = colors.filter(c => c.name !== targetColor.name);
+
+                // Shuffle available colors and pick 3
+                for (let i = availableColors.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [availableColors[i], availableColors[j]] = [availableColors[j], availableColors[i]];
+                }
+
+                const incorrectOptions = availableColors.slice(0, 3);
+                allOptions = [...allOptions, ...incorrectOptions];
+
+                // Shuffle the options to randomize their display order
+                for (let i = allOptions.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [allOptions[i], allOptions[j]] = [allOptions[j], allOptions[i]];
+                }
+                setOptions(allOptions);
+            };
+
+            // Handle user's color selection
+            const handleColorSelect = (selectedColor) => {
+                let correct = false;
+                if (selectedColor.name === currentColor.name) {
+                    setFeedback('正確！');
+                    setIsCorrect(true);
+                    correct = true;
+                    synth.current.triggerAttackRelease('C5', '8n'); // Play a positive sound
+                } else {
+                    // Display the selected incorrect answer
+                    setFeedback(`再試一次！您選擇的是：${selectedColor.name} (${selectedColor.chinese})`);
+                    setIsCorrect(false);
+                    synth.current.triggerAttackRelease('C3', '8n'); // Play a negative sound
+                }
+
+                if (isBattleMode) {
+                    if (correct) {
+                        if (currentPlayer === 'player1') {
+                            setPlayer1Score(prevScore => prevScore + 1);
+                        } else {
+                            setPlayer2Score(prevScore => prevScore + 1);
+                        }
+                    }
+                    // Switch player after each attempt in battle mode
+                    setCurrentPlayer(prevPlayer => prevPlayer === 'player1' ? 'player2' : 'player1');
+                } else {
+                    if (correct) {
+                        setScore(prevScore => prevScore + 1);
+                    }
+                }
+
+                // Move to next round after a short delay
+                // Increased delay slightly to allow time to read the feedback
+                setTimeout(() => {
+                    if (round < maxRounds) {
+                        setRound(prevRound => prevRound + 1);
+                        startNewRound();
+                    } else {
+                        // Game over logic
+                        let finalMessage = '';
+                        if (isBattleMode) {
+                            if (player1Score > player2Score) {
+                                finalMessage = `玩家1獲勝！分數：${player1Score} - ${player2Score}`;
+                            } else if (player2Score > player1Score) {
+                                finalMessage = `玩家2獲勝！分數：${player2Score} - ${player1Score}`;
+                            } else {
+                                finalMessage = `平手！分數：${player1Score} - ${player2Score}`;
+                            }
+                        } else {
+                            finalMessage = `遊戲結束！您的分數是 ${score} / ${maxRounds}`;
+                        }
+                        setFeedback(finalMessage);
+                        setIsCorrect(null); // Reset feedback state
+                        setCurrentColor(null); // Hide the word
+                        setOptions([]); // Hide options
+                    }
+                }, 2000); // 2 second delay to see the answer
+            };
+
+            // Reset the game
+            const resetGame = () => {
+                setScore(0);
+                setPlayer1Score(0);
+                setPlayer2Score(0);
+                setRound(1);
+                setCurrentPlayer('player1'); // Reset to player1 for new game
+                startNewRound();
+            };
+
+            // Toggle between single player and battle mode
+            const toggleMode = () => {
+                setIsBattleMode(prevMode => !prevMode);
+                resetGame(); // Reset game when mode changes
+            };
+
+            // Game Over Screen
+            if (!currentColor && round > maxRounds) {
+                let finalScoreDisplay = '';
+                if (isBattleMode) {
+                    finalScoreDisplay = (
+                        <p className="text-3xl text-gray-700 mb-8">
+                            玩家1分數: <span className="font-extrabold text-blue-600">{player1Score}</span><br />
+                            玩家2分數: <span className="font-extrabold text-blue-600">{player2Score}</span>
+                        </p>
+                    );
+                } else {
+                    finalScoreDisplay = (
+                        <p className="text-3xl text-gray-700 mb-8">您的分數是 <span className="font-extrabold text-blue-600">{score}</span> / {maxRounds}</p>
+                    );
+                }
+
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-300 to-purple-400 p-4 font-inter">
+                        <div className="bg-white p-8 rounded-xl shadow-2xl text-center max-w-md w-full">
+                            <h2 className="text-4xl font-bold text-gray-800 mb-6">遊戲結束！</h2>
+                            {finalScoreDisplay}
+                            <p className="text-3xl font-bold text-gray-800 mb-6">{feedback}</p> {/* Display winner message */}
+                            <button
+                                onClick={resetGame}
+                                className="bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105 mr-4"
+                            >
+                                再玩一次
+                            </button>
+                            <button
+                                onClick={toggleMode}
+                                className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-8 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
+                            >
+                                {isBattleMode ? '切換到單人模式' : '切換到對戰模式'}
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Main Game Screen
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-300 to-purple-400 p-4 font-inter">
+                    <div className="bg-white p-8 rounded-xl shadow-2xl text-center max-w-2xl w-full mb-8">
+                        <h1 className="text-5xl font-extrabold text-blue-700 mb-4">學習顏色！</h1>
+                        <p className="text-2xl text-gray-600 mb-6">回合：{round} / {maxRounds}</p>
+
+                        {isBattleMode ? (
+                            <div className="mb-4 text-2xl font-bold text-gray-700">
+                                <p>玩家1分數: <span className="text-blue-600">{player1Score}</span></p>
+                                <p>玩家2分數: <span className="text-red-600">{player2Score}</span></p>
+                                <p className={`mt-2 ${currentPlayer === 'player1' ? 'text-blue-700' : 'text-red-700'} animate-pulse`}>
+                                    目前是 {currentPlayer === 'player1' ? '玩家1' : '玩家2'} 的回合！
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-2xl text-gray-600 mb-6">分數：{score}</p>
+                        )}
+
+                        {currentColor && (
+                            <div className="mb-10">
+                                <p className="text-6xl font-black text-gray-800 animate-pulse">
+                                    {currentColor.name}
+                                </p>
+                                <p className="text-4xl font-semibold text-gray-600 mt-2">
+                                    {currentColor.chinese}
+                                </p>
+                                <button
+                                    onClick={() => speakColorName(currentColor.name)}
+                                    className="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-300 hover:scale-105"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1V9a1 1 0 011-1h1.586l4.707-4.707C10.923 3.682 11.5 4.107 11.5 5v14c0 .893-.577 1.318-1.207.793L5.586 15z" />
+                                    </svg>
+                                    聽發音
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8">
+                            {options.map((color, index) => (
+                                <button
+                                    key={index}
+                                    onClick={() => handleColorSelect(color)}
+                                    className="w-full h-32 rounded-2xl flex items-center justify-center border-4 border-gray-300 hover:border-blue-500 transition duration-300 transform hover:scale-105 shadow-md"
+                                    style={{ backgroundColor: color.hex }}
+                                >
+                                    {/* No text displayed on color options */}
+                                </button>
+                            ))}
+                        </div>
+
+                        {feedback && (
+                            <p className={`text-4xl font-bold ${isCorrect ? 'text-green-600' : 'text-red-600'} animate-bounce`}>
+                                {feedback}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Mode Toggle Button */}
+                    <button
+                        onClick={toggleMode}
+                        className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-300 hover:scale-105 mt-4"
+                    >
+                        {isBattleMode ? '切換到單人模式' : '切換到對戰模式'}
+                    </button>
+                </div>
+            );
+        };
+
+        // Render the App component into the root div
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
